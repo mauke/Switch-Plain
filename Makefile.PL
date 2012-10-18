@@ -10,7 +10,6 @@ WriteMakefile(
     CONFIGURE_REQUIRES => {
         'ExtUtils::MakeMaker' => '6.56',
     },
-    PL_FILES            => {},
     LICENSE => 'perl',
     PL_FILES            => {},
     BUILD_REQUIRES => {
@@ -19,9 +18,21 @@ WriteMakefile(
     PREREQ_PM => {
         'warnings' => 0,
         'strict' => 0,
-    	'XSLoader' => 0,
+        'XSLoader' => 0,
+        'Carp' => 0,
     },
     MIN_PERL_VERSION => '5.14.0',
+    META_MERGE => {
+        'meta-spec' => { version => 2 },
+        resources => {
+            repository => {
+                url => 'git://github.com/mauke/Switch-Plain.git',
+                web => 'https://github.com/mauke/Switch-Plain',
+                type => 'git',
+            },
+        },
+    },
+    depend => { Makefile => '$(VERSION_FROM)' },
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'Switch-Plain-*' },
 );
