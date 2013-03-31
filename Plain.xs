@@ -84,12 +84,12 @@ enum {
 };
 
 static void my_sv_cat_c(pTHX_ SV *sv, U32 c) {
-	char ds[UTF8_MAXBYTES + 1], *d;
+	U8 ds[UTF8_MAXBYTES + 1], *d;
 	d = uvchr_to_utf8(ds, c);
 	if (d - ds > 1) {
 		sv_utf8_upgrade(sv);
 	}
-	sv_catpvn(sv, ds, d - ds);
+	sv_catpvn(sv, (char *)ds, d - ds);
 }
 
 #if 0
@@ -103,24 +103,15 @@ static void my_op_cat_sv(pTHX_ OP **pop, SV *sv) {
 #include "padop_on_crack.c.inc"
 
 
-static bool my_is_uni_xidfirst(pTHX_ UV c) {
-	U8 tmpbuf[UTF8_MAXBYTES + 1];
-	uvchr_to_utf8(tmpbuf, c);
-	return is_utf8_xidfirst(tmpbuf);
-}
-
-static bool my_is_uni_xidcont(pTHX_ UV c) {
-	U8 tmpbuf[UTF8_MAXBYTES + 1];
-	uvchr_to_utf8(tmpbuf, c);
-	return is_utf8_xidcont(tmpbuf);
-}
+#define MY_UNI_IDFIRST(C) isIDFIRST_uni(C)
+#define MY_UNI_IDCONT(C)  isALNUM_uni(C)
 
 static SV *my_scan_word(pTHX) {
 	I32 c;
 	SV *sv;
 
 	c = lex_peek_unichar(0);
-	if (c == -1 || !my_is_uni_xidfirst(aTHX_ c)) {
+	if (c == -1 || !MY_UNI_IDFIRST(c)) {
 		return NULL;
 	}
 	lex_read_unichar(0);
@@ -132,7 +123,7 @@ static SV *my_scan_word(pTHX) {
 
 	my_sv_cat_c(aTHX_ sv, c);
 
-	while ((c = lex_peek_unichar(0)) != -1 && my_is_uni_xidcont(aTHX_ c)) {
+	while ((c = lex_peek_unichar(0)) != -1 && MY_UNI_IDCONT(c)) {
 		lex_read_unichar(0);
 		my_sv_cat_c(aTHX_ sv, c);
 	}
@@ -209,7 +200,7 @@ static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
 	cond_acc = NULL;
 
 	do {
-		OP *cond, *body;
+		OP *cond;
 		SV *sv1, *sv2;
 		const char *kw;
 		size_t kw_len;
