@@ -133,9 +133,11 @@ L<smartmatch operator C<~~>|perlop/Smartmatch-Operator>.
 
 This module understands the following grammar:
 
-  switch_statement := switch_keyword switch_body
+  switch_statement := switch_keyword switch_scrutinee switch_body
 
   switch_keyword := 'sswitch' | 'nswitch'
+
+  switch_scrutinee := '(' EXPR ')'
 
   switch_body := '{' case_clause* '}'
 
