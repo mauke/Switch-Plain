@@ -1,7 +1,6 @@
 package Switch::Plain;
 
 use v5.14.0;
-use strict;
 use warnings;
 
 use Carp qw(croak);
@@ -319,7 +318,7 @@ Lukas Mai, C<< <l.mai at web.de> >>
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2012 Lukas Mai.
+Copyright 2012-2013 Lukas Mai.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
