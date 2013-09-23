@@ -133,9 +133,11 @@ L<smartmatch operator C<~~>|perlop/Smartmatch-Operator>.
 
 This module understands the following grammar:
 
-  switch_statement := switch_keyword switch_body
+  switch_statement := switch_keyword switch_scrutinee switch_body
 
   switch_keyword := 'sswitch' | 'nswitch'
+
+  switch_scrutinee := '(' EXPR ')'
 
   switch_body := '{' case_clause* '}'
 
@@ -160,10 +162,10 @@ The meaning of a switch statement is given by the following translation rules:
 
 C<sswitch (FOO) { ... }> and C<nswitch (FOO) { ... }> turn into
 
-  {
+  do {
     local *_ = \FOO;
     ...
-  }
+  };
 
 That is, they alias L<C<$_>|perlvar/"$ARG"> to C<FOO> within the body of the switch statement.
 
@@ -214,7 +216,7 @@ Here's an example demonstrating all combinations:
 
 This is equivalent to:
 
-  {
+  do {
     # temporarily alias $_ to SCRUTINEE within this block:
     local *_ = \SCRUTINEE;
 
@@ -233,7 +235,7 @@ This is equivalent to:
     elsif (1) {
       BODY2
     }
-  }
+  };
 
 =head2 Differences between C<Switch::Plain> and C's C<switch>
 
