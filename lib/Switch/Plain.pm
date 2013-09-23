@@ -16,7 +16,9 @@ my %export = (
 	nswitch => FLAG_NSWITCH,
 );
 
-sub import {
+sub _port {
+	my $op = shift;
+
 	my $class = shift;
 
 	my @todo;
@@ -24,19 +26,16 @@ sub import {
 		push @todo, $export{$item} || croak qq{"$item" is not exported by the $class module};
 	}
 	for my $item (@todo ? @todo : values %export) {
-		$^H{+HINTK_FLAGS} |= $item;
+		$op->(\$^H{+HINTK_FLAGS}, $item);
 	}
 }
 
+sub import {
+	_port sub { ${$_[0]} |= $_[1]; }, @_;
+}
+
 sub unimport {
-	my $class = shift;
-	my @todo;
-	for my $item (@_) {
-		push @todo, $export{$item} || croak qq{"$item" is not exported by the $class module};
-	}
-	for my $item (@todo ? @todo : values %export) {
-		$^H{+HINTK_FLAGS} &= ~$item;
-	}
+	_port sub { ${$_[0]} &= ~$_[1]; }, @_;
 }
 
 'ok'
