@@ -1,5 +1,5 @@
 /*
-Copyright 2012 Lukas Mai.
+Copyright 2012, 2014 Lukas Mai.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
@@ -51,6 +51,9 @@ See http://dev.perl.org/licenses/ for more information.
 #include <ctype.h>
 #include <assert.h>
 
+#ifdef PERL_MAD
+#error "MADness is not supported."
+#endif
 
 WARNINGS_ENABLE
 
