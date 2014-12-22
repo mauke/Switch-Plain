@@ -7,35 +7,35 @@ use Carp qw(croak);
 
 use XSLoader;
 BEGIN {
-	our $VERSION = '0.02';
-	XSLoader::load;
+    our $VERSION = '0.02';
+    XSLoader::load;
 }
 
 my %export = (
-	sswitch => FLAG_SSWITCH,
-	nswitch => FLAG_NSWITCH,
+    sswitch => FLAG_SSWITCH,
+    nswitch => FLAG_NSWITCH,
 );
 
 sub _port {
-	my $op = shift;
+    my $op = shift;
 
-	my $class = shift;
+    my $class = shift;
 
-	my @todo;
-	for my $item (@_) {
-		push @todo, $export{$item} || croak qq{"$item" is not exported by the $class module};
-	}
-	for my $item (@todo ? @todo : values %export) {
-		$op->(\$^H{+HINTK_FLAGS}, $item);
-	}
+    my @todo;
+    for my $item (@_) {
+        push @todo, $export{$item} || croak qq{"$item" is not exported by the $class module};
+    }
+    for my $item (@todo ? @todo : values %export) {
+        $op->(\$^H{+HINTK_FLAGS}, $item);
+    }
 }
 
 sub import {
-	_port sub { ${$_[0]} |= $_[1]; }, @_;
+    _port sub { ${$_[0]} |= $_[1]; }, @_;
 }
 
 sub unimport {
-	_port sub { ${$_[0]} &= ~$_[1]; }, @_;
+    _port sub { ${$_[0]} &= ~$_[1]; }, @_;
 }
 
 'ok'
