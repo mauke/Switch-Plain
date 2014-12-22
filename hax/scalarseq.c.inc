@@ -1,46 +1,8 @@
-/*
- * This code was copied from perl/pad.c and perl/op.c and subsequently
- * butchered by Lukas Mai (2012).
- */
 /* vi: set ft=c inde=: */
 
-#define COP_SEQ_RANGE_LOW_set(SV, VAL) \
-    STMT_START { ((XPVNV*)SvANY(SV))->xnv_u.xpad_cop_seq.xlow = (VAL); } STMT_END
-#define COP_SEQ_RANGE_HIGH_set(SV, VAL) \
-    STMT_START { ((XPVNV*)SvANY(SV))->xnv_u.xpad_cop_seq.xhigh = (VAL); } STMT_END
+#ifndef scalarseq
 
-static void S_pad_block_start(pTHX_ int full) {
-    dVAR;
-    ASSERT_CURPAD_ACTIVE("pad_block_start");
-    SAVEI32(PL_comppad_name_floor);
-    PL_comppad_name_floor = AvFILLp(PL_comppad_name);
-    if (full)
-        PL_comppad_name_fill = PL_comppad_name_floor;
-    if (PL_comppad_name_floor < 0)
-        PL_comppad_name_floor = 0;
-    SAVEI32(PL_min_intro_pending);
-    SAVEI32(PL_max_intro_pending);
-    PL_min_intro_pending = 0;
-    SAVEI32(PL_comppad_name_fill);
-    SAVEI32(PL_padix_floor);
-    PL_padix_floor = PL_padix;
-    PL_pad_reset_pending = FALSE;
-}
-
-static int S_block_start(pTHX_ int full) {
-    dVAR;
-    const int retval = PL_savestack_ix;
-
-    S_pad_block_start(aTHX_ full);
-    SAVEHINTS();
-    PL_hints &= ~HINT_BLOCK_SCOPE;
-    SAVECOMPILEWARNINGS();
-    PL_compiling.cop_warnings = DUP_WARNINGS(PL_compiling.cop_warnings);
-
-    CALL_BLOCK_HOOKS(bhk_start, full);
-
-    return retval;
-}
+#define scalarseq(A) S_scalarseq(aTHX_ A)
 
 /* Check for in place reverse and sort assignments like "@a = reverse @a"
    and modify the optree to make them work inplace */
@@ -49,6 +11,8 @@ static void S_inplace_aassign(pTHX_ OP *o) {
     OP *modop, *modop_pushmark;
     OP *oright;
     OP *oleft, *oleft_pushmark;
+
+    /* PERL_ARGS_ASSERT_INPLACE_AASSIGN; */
 
     assert((o->op_flags & OPf_WANT) == OPf_WANT_VOID);
 
@@ -97,12 +61,12 @@ static void S_inplace_aassign(pTHX_ OP *o) {
             || cUNOPx(oright)->op_first->op_type != OP_GV
             || cUNOPx(oleft )->op_first->op_type != OP_GV
             || cGVOPx_gv(cUNOPx(oleft)->op_first) !=
-            cGVOPx_gv(cUNOPx(oright)->op_first)
+               cGVOPx_gv(cUNOPx(oright)->op_first)
         )
             return;
     }
     else if (oright->op_type != OP_PADAV
-             || oright->op_targ != oleft->op_targ
+        || oright->op_targ != oleft->op_targ
     )
         return;
 
@@ -121,7 +85,115 @@ static void S_inplace_aassign(pTHX_ OP *o) {
     op_null(oleft);
 }
 
+#if HAVE_PERL_VERSION(5, 19, 4)
+
+/* varname(): return the name of a variable, optionally with a subscript.
+ * If gv is non-zero, use the name of that global, along with gvtype (one
+ * of "$", "@", "%"); otherwise use the name of the lexical at pad offset
+ * targ.  Depending on the value of the subscript_type flag, return:
+ */
+
+#define FUV_SUBSCRIPT_NONE	1	/* "@foo"          */
+#define FUV_SUBSCRIPT_ARRAY	2	/* "$foo[aindex]"  */
+#define FUV_SUBSCRIPT_HASH	3	/* "$foo{keyname}" */
+#define FUV_SUBSCRIPT_WITHIN	4	/* "within @foo"   */
+
+static SV *S_varname(pTHX_ const GV *const gv, const char gvtype, PADOFFSET targ, const SV *const keyname, I32 aindex, int subscript_type) {
+    SV * const name = sv_newmortal();
+    if (gv && isGV(gv)) {
+	char buffer[2];
+	buffer[0] = gvtype;
+	buffer[1] = 0;
+
+	/* as gv_fullname4(), but add literal '^' for $^FOO names  */
+
+	gv_fullname4(name, gv, buffer, 0);
+
+	if ((unsigned int)SvPVX(name)[1] <= 26) {
+	    buffer[0] = '^';
+	    buffer[1] = SvPVX(name)[1] + 'A' - 1;
+
+	    /* Swap the 1 unprintable control character for the 2 byte pretty
+	       version - ie substr($name, 1, 1) = $buffer; */
+	    sv_insert(name, 1, 1, buffer, 2);
+	}
+    }
+    else {
+	CV * const cv = gv ? ((CV *)gv) : find_runcv(NULL);
+	SV *sv;
+	AV *av;
+
+	assert(!cv || SvTYPE(cv) == SVt_PVCV || SvTYPE(cv) == SVt_PVFM);
+
+	if (!cv || !CvPADLIST(cv))
+	    return NULL;
+	av = *PadlistARRAY(CvPADLIST(cv));
+	sv = *av_fetch(av, targ, FALSE);
+	sv_setsv_flags(name, sv, 0);
+    }
+
+    if (subscript_type == FUV_SUBSCRIPT_HASH) {
+	SV * const sv = newSV(0);
+	*SvPVX(name) = '$';
+	Perl_sv_catpvf(aTHX_ name, "{%s}",
+	    pv_pretty(sv, SvPVX_const(keyname), SvCUR(keyname), 32, NULL, NULL,
+		    PERL_PV_PRETTY_DUMP | PERL_PV_ESCAPE_UNI_DETECT ));
+	SvREFCNT_dec_NN(sv);
+    }
+    else if (subscript_type == FUV_SUBSCRIPT_ARRAY) {
+	*SvPVX(name) = '$';
+	Perl_sv_catpvf(aTHX_ name, "[%"IVdf"]", (IV)aindex);
+    }
+    else if (subscript_type == FUV_SUBSCRIPT_WITHIN) {
+	/* We know that name has no magic, so can use 0 instead of SV_GMAGIC */
+	Perl_sv_insert_flags(aTHX_ name, 0, 0,  STR_WITH_LEN("within "), 0);
+    }
+
+    return name;
+}
+
+static SV *S_op_varname(pTHX_ const OP *o) {
+    assert(o);
+    assert(o->op_type == OP_PADAV || o->op_type == OP_RV2AV ||
+           o->op_type == OP_PADHV || o->op_type == OP_RV2HV);
+    {
+        const char funny  = o->op_type == OP_PADAV
+                         || o->op_type == OP_RV2AV ? '@' : '%';
+        if (o->op_type == OP_RV2AV || o->op_type == OP_RV2HV) {
+            GV *gv;
+            if (cUNOPo->op_first->op_type != OP_GV
+             || !(gv = cGVOPx_gv(cUNOPo->op_first)))
+                return NULL;
+            return S_varname(aTHX_ gv, funny, 0, NULL, 0, 1);
+        }
+        return
+            S_varname(aTHX_ MUTABLE_GV(PL_compcv), funny, o->op_targ, NULL, 0, 1);
+    }
+}
+
+static void
+S_op_pretty(pTHX_ const OP *o, SV **retsv, const char **retpv) {
+    /* or not so pretty :-) */
+    if (o->op_type == OP_CONST) {
+	*retsv = cSVOPo_sv;
+	if (SvPOK(*retsv)) {
+	    SV *sv = *retsv;
+	    *retsv = sv_newmortal();
+	    pv_pretty(*retsv, SvPVX_const(sv), SvCUR(sv), 32, NULL, NULL,
+		      PERL_PV_PRETTY_DUMP |PERL_PV_ESCAPE_UNI_DETECT);
+	}
+	else if (!SvOK(*retsv))
+	    *retpv = "undef";
+    }
+    else *retpv = "...";
+}
+
+#endif
+
 static OP *S_scalarvoid(pTHX_ OP *);
+
+#ifndef scalar
+#define scalar(A) S_scalar(aTHX_ A)
 
 static OP *S_scalar(pTHX_ OP *o) {
     dVAR;
@@ -129,8 +201,8 @@ static OP *S_scalar(pTHX_ OP *o) {
 
     /* assumes no premature commitment */
     if (!o || (PL_parser && PL_parser->error_count)
-        || (o->op_flags & OPf_WANT)
-        || o->op_type == OP_RETURN)
+         || (o->op_flags & OPf_WANT)
+         || o->op_type == OP_RETURN)
     {
         return o;
     }
@@ -139,13 +211,13 @@ static OP *S_scalar(pTHX_ OP *o) {
 
     switch (o->op_type) {
         case OP_REPEAT:
-            S_scalar(aTHX_ cBINOPo->op_first);
+            scalar(cBINOPo->op_first);
             break;
         case OP_OR:
         case OP_AND:
         case OP_COND_EXPR:
             for (kid = cUNOPo->op_first->op_sibling; kid; kid = kid->op_sibling)
-                S_scalar(aTHX_ kid);
+                scalar(kid);
             break;
             /* FALL THROUGH */
         case OP_SPLIT:
@@ -156,13 +228,13 @@ static OP *S_scalar(pTHX_ OP *o) {
         default:
             if (o->op_flags & OPf_KIDS) {
                 for (kid = cUNOPo->op_first; kid; kid = kid->op_sibling)
-                    S_scalar(aTHX_ kid);
+                    scalar(kid);
             }
             break;
         case OP_LEAVE:
         case OP_LEAVETRY:
             kid = cLISTOPo->op_first;
-            S_scalar(aTHX_ kid);
+            scalar(kid);
             kid = kid->op_sibling;
 do_kids:
             while (kid) {
@@ -170,7 +242,7 @@ do_kids:
                 if (sib && kid->op_type != OP_LEAVEWHEN)
                     S_scalarvoid(aTHX_ kid);
                 else
-                    S_scalar(aTHX_ kid);
+                    scalar(kid);
                 kid = sib;
             }
             PL_curcop = &PL_compiling;
@@ -183,15 +255,59 @@ do_kids:
         case OP_SORT:
             Perl_ck_warner(aTHX_ packWARN(WARN_VOID), "Useless use of sort in scalar context");
             break;
+#if HAVE_PERL_VERSION(5, 19, 4)
+        case OP_KVHSLICE:
+        case OP_KVASLICE:
+        {
+            /* Warn about scalar context */
+            const char lbrack = o->op_type == OP_KVHSLICE ? '{' : '[';
+            const char rbrack = o->op_type == OP_KVHSLICE ? '}' : ']';
+            SV *name;
+            SV *keysv = NULL;
+            const char *key = NULL;
+
+            /* This warning can be nonsensical when there is a syntax error. */
+            if (PL_parser && PL_parser->error_count)
+                break;
+
+            if (!ckWARN(WARN_SYNTAX)) break;
+
+            kid = cLISTOPo->op_first;
+            kid = kid->op_sibling; /* get past pushmark */
+            assert(kid->op_sibling);
+            name = S_op_varname(aTHX_ kid->op_sibling);
+            if (!name) /* XS module fiddling with the op tree */
+                break;
+            S_op_pretty(aTHX_ kid, &keysv, &key);
+            assert(SvPOK(name));
+            sv_chop(name,SvPVX(name)+1);
+            if (key)
+      /* diag_listed_as: %%s[%s] in scalar context better written as $%s[%s] */
+                Perl_warner(aTHX_ packWARN(WARN_SYNTAX),
+                           "%%%"SVf"%c%s%c in scalar context better written "
+                           "as $%"SVf"%c%s%c",
+                            SVfARG(name), lbrack, key, rbrack, SVfARG(name),
+                            lbrack, key, rbrack);
+            else
+      /* diag_listed_as: %%s[%s] in scalar context better written as $%s[%s] */
+                Perl_warner(aTHX_ packWARN(WARN_SYNTAX),
+                           "%%%"SVf"%c%"SVf"%c in scalar context better "
+                           "written as $%"SVf"%c%"SVf"%c",
+                            SVfARG(name), lbrack, keysv, rbrack,
+                            SVfARG(name), lbrack, keysv, rbrack);
+        }
+#endif
     }
     return o;
 }
 
+#endif
+
 static OP *S_scalarkids(pTHX_ OP *o) {
     if (o && o->op_flags & OPf_KIDS) {
         OP *kid;
-    for (kid = cLISTOPo->op_first; kid; kid = kid->op_sibling)
-        S_scalar(aTHX_ kid);
+        for (kid = cLISTOPo->op_first; kid; kid = kid->op_sibling)
+            scalar(kid);
     }
     return o;
 }
@@ -199,43 +315,32 @@ static OP *S_scalarkids(pTHX_ OP *o) {
 static OP *S_scalarvoid(pTHX_ OP *o) {
     dVAR;
     OP *kid;
+    SV *useless_sv = NULL;
     const char *useless = NULL;
-    U32 useless_is_utf8 = 0;
     SV *sv;
     U8 want;
 
     PERL_ARGS_ASSERT_SCALARVOID;
 
-    if (
-        o->op_type == OP_NEXTSTATE ||
-        o->op_type == OP_DBSTATE || (
-            o->op_type == OP_NULL && (
-                o->op_targ == OP_NEXTSTATE ||
-                o->op_targ == OP_DBSTATE
-            )
-        )
-    ) {
-        PL_curcop = (COP*)o;        /* for warning below */
-    }
+    if (o->op_type == OP_NEXTSTATE
+        || o->op_type == OP_DBSTATE
+        || (o->op_type == OP_NULL && (o->op_targ == OP_NEXTSTATE
+                                      || o->op_targ == OP_DBSTATE)))
+        PL_curcop = (COP*)o;            /* for warning below */
 
     /* assumes no premature commitment */
     want = o->op_flags & OPf_WANT;
-    if (
-        (want && want != OPf_WANT_SCALAR) ||
-        (PL_parser && PL_parser->error_count) ||
-        o->op_type == OP_RETURN ||
-        o->op_type == OP_REQUIRE ||
-        o->op_type == OP_LEAVEWHEN
-    ) {
+    if ((want && want != OPf_WANT_SCALAR)
+         || (PL_parser && PL_parser->error_count)
+         || o->op_type == OP_RETURN || o->op_type == OP_REQUIRE || o->op_type == OP_LEAVEWHEN)
+    {
         return o;
     }
 
-    if (
-        (o->op_private & OPpTARGET_MY) &&
-        (PL_opargs[o->op_type] & OA_TARGLEX)
-        /* OPp share the meaning */
-    ) {
-        return S_scalar(aTHX_ o);           /* As if inside SASSIGN */
+    if ((o->op_private & OPpTARGET_MY)
+        && (PL_opargs[o->op_type] & OA_TARGLEX))/* OPp share the meaning */
+    {
+        return scalar(o);                       /* As if inside SASSIGN */
     }
 
     o->op_flags = (o->op_flags & ~OPf_WANT) | OPf_WANT_VOID;
@@ -277,8 +382,10 @@ static OP *S_scalarvoid(pTHX_ OP *o) {
         case OP_AELEMFAST:
         IF_HAVE_PERL_5_16(case OP_AELEMFAST_LEX:, )
         case OP_ASLICE:
+        IF_HAVE_PERL_5_19_4(case OP_KVASLICE:, )
         case OP_HELEM:
         case OP_HSLICE:
+        IF_HAVE_PERL_5_19_4(case OP_KVHSLICE:, )
         case OP_UNPACK:
         case OP_PACK:
         case OP_JOIN:
@@ -334,10 +441,11 @@ func_ops:
             kid = cLISTOPo->op_first;
             if (kid && kid->op_type == OP_PUSHRE
 #ifdef USE_ITHREADS
-                && !((PMOP*)kid)->op_pmreplrootu.op_pmtargetoff)
+                && !((PMOP*)kid)->op_pmreplrootu.op_pmtargetoff
 #else
-                && !((PMOP*)kid)->op_pmreplrootu.op_pmtargetgv)
+                && !((PMOP*)kid)->op_pmreplrootu.op_pmtargetgv
 #endif
+            )
                     useless = OP_DESC(o);
             break;
 
@@ -371,8 +479,8 @@ func_ops:
         case OP_CONST:
             sv = cSVOPo_sv;
             if (cSVOPo->op_private & OPpCONST_STRICT) {
-                //no_bareword_allowed(o);
-                *((int *)NULL) += 1;
+                /* no_bareword_allowed(o); */
+                croak("%s: internal error: what even are birds", MY_PKG);
             } else {
                 if (ckWARN(WARN_VOID)) {
                     /* don't warn on optimised away booleans, eg 
@@ -385,32 +493,19 @@ func_ops:
                     else if (SvNIOK(sv) && (SvNV(sv) == 0.0 || SvNV(sv) == 1.0))
                         useless = NULL;
                     else if (SvPOK(sv)) {
-                        /* perl4's way of mixing documentation and code
-                           (before the invention of POD) was based on a
-                           trick to mix nroff and perl code. The trick was
-                           built upon these three nroff macros being used in
-                           void context. The pink camel has the details in
-                           the script wrapman near page 319. */
-                        const char * const maybe_macro = SvPVX_const(sv);
-                        if (strnEQ(maybe_macro, "di", 2) ||
-                            strnEQ(maybe_macro, "ds", 2) ||
-                            strnEQ(maybe_macro, "ig", 2))
-                            useless = NULL;
-                        else {
-                            SV * const dsv = newSVpvs("");
-                            SV* msv = sv_2mortal(Perl_newSVpvf(aTHX_
-                                                               "a constant (%s)",
-                                                               pv_pretty(dsv, maybe_macro, SvCUR(sv), 32, NULL, NULL,
-                                                                         PERL_PV_PRETTY_DUMP | PERL_PV_ESCAPE_NOCLEAR | PERL_PV_ESCAPE_UNI_DETECT )));
-                            SvREFCNT_dec(dsv);
-                            useless = SvPV_nolen(msv);
-                            useless_is_utf8 = SvUTF8(msv);
-                        }
+                        SV * const dsv = newSVpvs("");
+                        useless_sv
+                            = Perl_newSVpvf(aTHX_
+                                            "a constant (%s)",
+                                            pv_pretty(dsv, SvPVX_const(sv),
+                                                      SvCUR(sv), 32, NULL, NULL,
+                                                      PERL_PV_PRETTY_DUMP
+                                                      | PERL_PV_ESCAPE_NOCLEAR
+                                                      | PERL_PV_ESCAPE_UNI_DETECT));
+                        SvREFCNT_dec_NN(dsv);
                     }
                     else if (SvOK(sv)) {
-                        SV* msv = sv_2mortal(Perl_newSVpvf(aTHX_
-                                                           "a constant (%"SVf")", sv));
-                        useless = SvPV_nolen(msv);
+                        useless_sv = Perl_newSVpvf(aTHX_ "a constant (%"SVf")", sv);
                     }
                     else
                         useless = "a constant (undef)";
@@ -534,12 +629,20 @@ func_ops:
             S_scalarkids(aTHX_ o);
             break;
         case OP_SCALAR:
-            return S_scalar(aTHX_ o);
+            return scalar(o);
     }
-    if (useless)
-        Perl_ck_warner(aTHX_ packWARN(WARN_VOID), "Useless use of %"SVf" in void context",
-                       newSVpvn_flags(useless, strlen(useless),
-                                      SVs_TEMP | ( useless_is_utf8 ? SVf_UTF8 : 0 )));
+
+    if (useless_sv) {
+        /* mortalise it, in case warnings are fatal.  */
+        Perl_ck_warner(aTHX_ packWARN(WARN_VOID),
+                       "Useless use of %"SVf" in void context",
+                       sv_2mortal(useless_sv));
+    }
+    else if (useless) {
+        Perl_ck_warner(aTHX_ packWARN(WARN_VOID),
+                       "Useless use of %s in void context",
+                       useless);
+    }
     return o;
 }
 
@@ -568,98 +671,4 @@ static OP *S_scalarseq(pTHX_ OP *o) {
     return o;
 }
 
-static U32 S_intro_my(pTHX) {
-    dVAR;
-    SV **svp;
-    I32 i;
-    U32 seq;
-
-    ASSERT_CURPAD_ACTIVE("intro_my");
-    if (!PL_min_intro_pending)
-        return PL_cop_seqmax;
-
-    svp = AvARRAY(PL_comppad_name);
-    for (i = PL_min_intro_pending; i <= PL_max_intro_pending; i++) {
-        SV *const sv = svp[i];
-
-        if (sv && sv != &PL_sv_undef && !SvFAKE(sv)
-            && COP_SEQ_RANGE_LOW(sv) == PERL_PADSEQ_INTRO)
-        {
-            COP_SEQ_RANGE_HIGH_set(sv, PERL_PADSEQ_INTRO); /* Don't know scope end yet. */
-            COP_SEQ_RANGE_LOW_set(sv, PL_cop_seqmax);
-            DEBUG_Xv(PerlIO_printf(Perl_debug_log,
-                                   "Pad intromy: %ld \"%s\", (%lu,%lu)\n",
-                                   (long)i, SvPVX_const(sv),
-                                   (unsigned long)COP_SEQ_RANGE_LOW(sv),
-                                   (unsigned long)COP_SEQ_RANGE_HIGH(sv))
-            );
-        }
-    }
-    seq = PL_cop_seqmax;
-    PL_cop_seqmax++;
-    if (PL_cop_seqmax == PERL_PADSEQ_INTRO) /* not a legal value */
-        PL_cop_seqmax++;
-    PL_min_intro_pending = 0;
-    PL_comppad_name_fill = PL_max_intro_pending; /* Needn't search higher */
-    DEBUG_Xv(PerlIO_printf(Perl_debug_log,
-                           "Pad intromy: seq -> %ld\n", (long)(PL_cop_seqmax)));
-
-    return seq;
-}
-
-static void S_pad_leavemy(pTHX) {
-    dVAR;
-    I32 off;
-    SV * const * const svp = AvARRAY(PL_comppad_name);
-
-    PL_pad_reset_pending = FALSE;
-
-    ASSERT_CURPAD_ACTIVE("pad_leavemy");
-    if (PL_min_intro_pending && PL_comppad_name_fill < PL_min_intro_pending) {
-        for (off = PL_max_intro_pending; off >= PL_min_intro_pending; off--) {
-            const SV * const sv = svp[off];
-            if (sv && sv != &PL_sv_undef && !SvFAKE(sv))
-                Perl_ck_warner_d(aTHX_ packWARN(WARN_INTERNAL),
-                                 "%"SVf" never introduced",
-                                 SVfARG(sv));
-        }
-    }
-    /* "Deintroduce" my variables that are leaving with this scope. */
-    for (off = AvFILLp(PL_comppad_name); off > PL_comppad_name_fill; off--) {
-        const SV * const sv = svp[off];
-        if (sv && sv != &PL_sv_undef && !SvFAKE(sv)
-            && COP_SEQ_RANGE_HIGH(sv) == PERL_PADSEQ_INTRO)
-        {
-            COP_SEQ_RANGE_HIGH_set(sv, PL_cop_seqmax);
-            DEBUG_Xv(PerlIO_printf(Perl_debug_log,
-                                   "Pad leavemy: %ld \"%s\", (%lu,%lu)\n",
-                                   (long)off, SvPVX_const(sv),
-                                   (unsigned long)COP_SEQ_RANGE_LOW(sv),
-                                   (unsigned long)COP_SEQ_RANGE_HIGH(sv))
-            );
-        }
-    }
-    PL_cop_seqmax++;
-    if (PL_cop_seqmax == PERL_PADSEQ_INTRO) /* not a legal value */
-        PL_cop_seqmax++;
-    DEBUG_Xv(PerlIO_printf(Perl_debug_log,
-                           "Pad leavemy: seq = %ld\n", (long)PL_cop_seqmax));
-}
-
-static OP *S_block_end(pTHX_ I32 floor, OP *seq) {
-    dVAR;
-    const int needblockscope = PL_hints & HINT_BLOCK_SCOPE;
-    OP *retval = S_scalarseq(aTHX_ seq);
-
-    CALL_BLOCK_HOOKS(bhk_pre_end, &retval);
-
-    LEAVE_SCOPE(floor);
-    CopHINTS_set(&PL_compiling, PL_hints);
-    if (needblockscope)
-        PL_hints |= HINT_BLOCK_SCOPE; /* propagate out */
-    S_pad_leavemy(aTHX);
-
-    CALL_BLOCK_HOOKS(bhk_post_end, &retval);
-
-    return retval;
-}
+#endif

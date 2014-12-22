@@ -32,6 +32,10 @@ my %opt = (
         'warnings' => 0,
     },
 
+    depend => {
+        Makefile    => '$(VERSION_FROM)',
+        '$(OBJECT)' => join(' ', glob 'hax/*.c.inc'),
+    },
     dist  => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean => { FILES => 'Switch-Plain-*' },
 

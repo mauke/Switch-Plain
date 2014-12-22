@@ -64,11 +64,29 @@ See http://dev.perl.org/licenses/ for more information.
  #define IF_HAVE_PERL_5_16(YES, NO) NO
 #endif
 
+#if HAVE_PERL_VERSION(5, 19, 3)
+ #define IF_HAVE_PERL_5_19_3(YES, NO) YES
+#else
+ #define IF_HAVE_PERL_5_19_3(YES, NO) NO
+#endif
+
+#if HAVE_PERL_VERSION(5, 19, 4)
+ #define IF_HAVE_PERL_5_19_4(YES, NO) YES
+#else
+ #define IF_HAVE_PERL_5_19_4(YES, NO) NO
+#endif
+
+#ifndef SvREFCNT_dec_NN
+#define SvREFCNT_dec_NN(SV) SvREFCNT_dec(SV)
+#endif
 
 #define MY_PKG "Switch::Plain"
 
 
-#include "padop_on_crack.c.inc"
+#include "hax/scalar.c.inc"
+#include "hax/intro_my.c.inc"
+#include "hax/block_start.c.inc"
+#include "hax/block_end.c.inc"
 
 
 WARNINGS_ENABLE
@@ -223,7 +241,7 @@ static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
                 compare_numeric ? OP_EQ : OP_SEQ,
                 0,
                 newSVREF(newGVOP(OP_GV, 0, PL_defgv)),
-                S_scalar(aTHX_ cond)
+                scalar(cond)
             );
         }
 
@@ -249,7 +267,7 @@ static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
 
             /* unless */
             if (kw_len == 6) {
-                cond2 = newUNOP(OP_NOT, OPf_SPECIAL, S_scalar(aTHX_ cond2));
+                cond2 = newUNOP(OP_NOT, OPf_SPECIAL, scalar(cond2));
             }
 
             cond = !cond ? cond2 : newLOGOP(OP_AND, 0, cond, cond2);
@@ -266,16 +284,16 @@ static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
     } while (lex_peek_unichar(0) != '{');
 
     if (cond_acc) {
-        S_intro_my(aTHX);
+        intro_my();
     }
 
     {
         OP *body;
         int block_ix;
 
-        block_ix = S_block_start(aTHX_ FALSE);
+        block_ix = block_start(FALSE);
         body = parse_block(0);
-        body = S_block_end(aTHX_ block_ix, body);
+        body = block_end(block_ix, body);
         /*
         body->op_flags |= OPf_PARENS;
         body = op_scope(aTHX_ body);
@@ -306,7 +324,7 @@ static void parse_switch(pTHX_ int compare_numeric, OP **op_ptr) {
     SAVEDESTRUCTOR_X(free_ptr_op, gen_sentinel);
 
     /* create outer block: '{' */
-    save_ix = S_block_start(aTHX_ TRUE);
+    save_ix = block_start(TRUE);
 
     if (!(*gen_sentinel = parse_fullexpr(PARSE_OPTIONAL))) {
         croak("Missing expression after '%cswitch ('", compare_numeric ? 'n' : 's');
@@ -365,7 +383,7 @@ static void parse_switch(pTHX_ int compare_numeric, OP **op_ptr) {
     }
 
     /* close outer block: '}' */
-    *gen_sentinel = S_block_end(aTHX_ save_ix, *gen_sentinel);
+    *gen_sentinel = block_end(save_ix, *gen_sentinel);
     *gen_sentinel = op_scope(*gen_sentinel); /* XXX? */
 
     *op_ptr = *gen_sentinel;
