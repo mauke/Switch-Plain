@@ -55,9 +55,6 @@ See http://dev.perl.org/licenses/ for more information.
 #error "MADness is not supported."
 #endif
 
-WARNINGS_ENABLE
-
-
 #define HAVE_PERL_VERSION(R, V, S) \
     (PERL_REVISION > (R) || (PERL_REVISION == (R) && (PERL_VERSION > (V) || (PERL_VERSION == (V) && (PERL_SUBVERSION >= (S))))))
 
@@ -69,6 +66,12 @@ WARNINGS_ENABLE
 
 
 #define MY_PKG "Switch::Plain"
+
+
+#include "padop_on_crack.c.inc"
+
+
+WARNINGS_ENABLE
 
 #define HINTK_FLAGS  MY_PKG "/flags"
 
@@ -87,23 +90,13 @@ enum {
 };
 
 static void my_sv_cat_c(pTHX_ SV *sv, U32 c) {
-    U8 ds[UTF8_MAXBYTES + 1], *d;
-    d = uvchr_to_utf8(ds, c);
+    char ds[UTF8_MAXBYTES + 1], *d;
+    d = (char *)uvchr_to_utf8((U8 *)ds, c);
     if (d - ds > 1) {
         sv_utf8_upgrade(sv);
     }
-    sv_catpvn(sv, (char *)ds, d - ds);
+    sv_catpvn(sv, ds, d - ds);
 }
-
-#if 0
-static void my_op_cat_sv(pTHX_ OP **pop, SV *sv) {
-    OP *const str = newSVOP(OP_CONST, 0, SvREFCNT_inc_simple_NN(sv));
-    *pop = !*pop ? str : newBINOP(OP_CONCAT, 0, *pop, str);
-}
-#endif
-
-
-#include "padop_on_crack.c.inc"
 
 
 #define MY_UNI_IDFIRST(C) isIDFIRST_uni(C)
@@ -190,12 +183,6 @@ static void itv_push(IfThenVector *itv, OP *cond, OP *body) {
     it->cond = cond;
     it->body = body;
 }
-
-#if 0
-static void itv_dismiss(IfThenVector *itv) {
-    itv->used = 0;
-}
-#endif
 
 static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
     OP *cond_acc;
