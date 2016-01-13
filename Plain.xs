@@ -1,5 +1,5 @@
 /*
-Copyright 2012, 2014 Lukas Mai.
+Copyright 2012, 2014, 2016 Lukas Mai.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
@@ -350,7 +350,7 @@ static void parse_switch(pTHX_ int compare_numeric, OP **op_ptr) {
         OP *target, *gen;
 
         gen = *gen_sentinel;
-        gen = newUNOP(OP_REFGEN, 0, op_lvalue(gen, OP_REFGEN));
+        gen = newUNOP(OP_REFGEN, 0, op_lvalue(scalar(gen), OP_REFGEN));
 
         target = newGVREF(0, newGVOP(OP_GV, 0, PL_defgv));
         target = op_lvalue(target, OP_NULL);
