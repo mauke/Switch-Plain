@@ -9,10 +9,18 @@ See http://dev.perl.org/licenses/ for more information.
  */
 
 #ifdef __GNUC__
+ #if __GNUC__ >= 5
+  #define IF_HAVE_GCC_5(X) X
+ #endif
+
  #if (__GNUC__ == 4 && __GNUC_MINOR__ >= 6) || __GNUC__ >= 5
   #define PRAGMA_GCC_(X) _Pragma(#X)
   #define PRAGMA_GCC(X) PRAGMA_GCC_(GCC X)
  #endif
+#endif
+
+#ifndef IF_HAVE_GCC_5
+ #define IF_HAVE_GCC_5(X)
 #endif
 
 #ifndef PRAGMA_GCC
@@ -26,15 +34,15 @@ See http://dev.perl.org/licenses/ for more information.
     WARNINGS_ENABLEW(-Wall) \
     WARNINGS_ENABLEW(-Wextra) \
     WARNINGS_ENABLEW(-Wundef) \
-    /* WARNINGS_ENABLEW(-Wshadow) :-( */ \
+    WARNINGS_ENABLEW(-Wshadow) \
     WARNINGS_ENABLEW(-Wbad-function-cast) \
     WARNINGS_ENABLEW(-Wcast-align) \
     WARNINGS_ENABLEW(-Wwrite-strings) \
-    /* WARNINGS_ENABLEW(-Wnested-externs) wtf? */ \
     WARNINGS_ENABLEW(-Wstrict-prototypes) \
     WARNINGS_ENABLEW(-Wmissing-prototypes) \
     WARNINGS_ENABLEW(-Winline) \
-    WARNINGS_ENABLEW(-Wdisabled-optimization)
+    WARNINGS_ENABLEW(-Wdisabled-optimization) \
+    IF_HAVE_GCC_5(WARNINGS_ENABLEW(-Wnested-externs))
 
 #else
  #define WARNINGS_RESET
@@ -408,8 +416,6 @@ static int my_keyword_plugin(pTHX_ char *keyword_ptr, STRLEN keyword_len, OP **o
     int ret;
     char c;
 
-    SAVETMPS;
-
     c = *keyword_ptr;
     if (
         keyword_len == 7 &&
@@ -417,17 +423,30 @@ static int my_keyword_plugin(pTHX_ char *keyword_ptr, STRLEN keyword_len, OP **o
         memcmp(keyword_ptr + 1, "switch", 6) == 0 &&
         (bc_flags(aTHX) & (c == 'n' ? FLAG_NSWITCH : FLAG_SSWITCH))
     ) {
+        ENTER;
+        SAVETMPS;
         parse_switch(aTHX_ c == 'n', op_ptr);
+        FREETMPS;
+        LEAVE;
         ret = KEYWORD_PLUGIN_STMT;
     } else {
         ret = next_keyword_plugin(aTHX_ keyword_ptr, keyword_len, op_ptr);
     }
 
-    FREETMPS;
 
     return ret;
 }
 
+static void my_boot(void) {
+    HV *const stash = gv_stashpvs(MY_PKG, GV_ADD);
+
+    newCONSTSUB(stash, "FLAG_SSWITCH", newSViv(FLAG_SSWITCH));
+    newCONSTSUB(stash, "FLAG_NSWITCH", newSViv(FLAG_NSWITCH));
+    newCONSTSUB(stash, "HINTK_FLAGS", newSVpvs(HINTK_FLAGS));
+
+    next_keyword_plugin = PL_keyword_plugin;
+    PL_keyword_plugin = my_keyword_plugin;
+}
 
 WARNINGS_RESET
 
@@ -435,13 +454,4 @@ MODULE = Switch::Plain   PACKAGE = Switch::Plain
 PROTOTYPES: ENABLE
 
 BOOT:
-WARNINGS_ENABLE {
-    HV *const stash = gv_stashpvs(MY_PKG, GV_ADD);
-    /**/
-    newCONSTSUB(stash, "FLAG_SSWITCH", newSViv(FLAG_SSWITCH));
-    newCONSTSUB(stash, "FLAG_NSWITCH", newSViv(FLAG_NSWITCH));
-    newCONSTSUB(stash, "HINTK_FLAGS", newSVpvs(HINTK_FLAGS));
-    /**/
-    next_keyword_plugin = PL_keyword_plugin;
-    PL_keyword_plugin = my_keyword_plugin;
-} WARNINGS_RESET
+    my_boot();
