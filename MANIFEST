@@ -11,9 +11,10 @@ hax/pad_leavemy.c.inc
 hax/scalar.c.inc
 hax/scalarseq.c.inc
 Makefile.PL
+Makefile_PL_settings
 MANIFEST
 MANIFEST.SKIP
 README
 t/00-load.t
 t/01-run.t
-t/pod.t
+xt/pod.t
