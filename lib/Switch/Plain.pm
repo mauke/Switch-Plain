@@ -7,7 +7,9 @@ use Carp qw(croak);
 
 use XSLoader;
 BEGIN {
-    our $VERSION = '0.03';
+    our $VERSION = '0.03_01';
+    our $XS_VERSION = $VERSION;
+    $VERSION =~ tr/_//d;
     XSLoader::load;
 }
 
