@@ -1,5 +1,8 @@
 Revision history for Switch-Plain
 
+0.04    2016-01-15
+        - evaluate the scrutinee in scalar context, not list
+
 0.03    2014-12-22
         - internal restructuring
         - compatibility with 5.21.*
