@@ -14,5 +14,5 @@ my $t = 'scrutinee in scalar context';
 sswitch (context) {
     case 'scalar': { pass $t; }
     case 'list':   { fail $t; }
-    default:       { fail 'wtf?'; }
+    default:       { fail "wtf? [$_]"; }
 }

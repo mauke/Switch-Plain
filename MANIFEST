@@ -17,5 +17,6 @@ MANIFEST.SKIP
 README
 t/00-load.t
 t/01-run.t
+t/alias.t
 t/context.t
 xt/pod.t
