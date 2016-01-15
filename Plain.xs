@@ -437,7 +437,7 @@ static int my_keyword_plugin(pTHX_ char *keyword_ptr, STRLEN keyword_len, OP **o
     return ret;
 }
 
-static void my_boot(void) {
+static void my_boot(pTHX) {
     HV *const stash = gv_stashpvs(MY_PKG, GV_ADD);
 
     newCONSTSUB(stash, "FLAG_SSWITCH", newSViv(FLAG_SSWITCH));
@@ -454,4 +454,4 @@ MODULE = Switch::Plain   PACKAGE = Switch::Plain
 PROTOTYPES: ENABLE
 
 BOOT:
-    my_boot();
+    my_boot(aTHX);
