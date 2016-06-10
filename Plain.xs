@@ -66,22 +66,10 @@ See http://dev.perl.org/licenses/ for more information.
 #define HAVE_PERL_VERSION(R, V, S) \
     (PERL_REVISION > (R) || (PERL_REVISION == (R) && (PERL_VERSION > (V) || (PERL_VERSION == (V) && (PERL_SUBVERSION >= (S))))))
 
-#if HAVE_PERL_VERSION(5, 16, 0)
- #define IF_HAVE_PERL_5_16(YES, NO) YES
-#else
- #define IF_HAVE_PERL_5_16(YES, NO) NO
-#endif
-
 #if HAVE_PERL_VERSION(5, 19, 3)
  #define IF_HAVE_PERL_5_19_3(YES, NO) YES
 #else
  #define IF_HAVE_PERL_5_19_3(YES, NO) NO
-#endif
-
-#if HAVE_PERL_VERSION(5, 19, 4)
- #define IF_HAVE_PERL_5_19_4(YES, NO) YES
-#else
- #define IF_HAVE_PERL_5_19_4(YES, NO) NO
 #endif
 
 #ifndef SvREFCNT_dec_NN
@@ -91,10 +79,14 @@ See http://dev.perl.org/licenses/ for more information.
 #define MY_PKG "Switch::Plain"
 
 
-#include "hax/scalar.c.inc"
+/* 5.22+ shouldn't require any hax */
+#if !HAVE_PERL_VERSION(5, 22, 0)
+
 #include "hax/intro_my.c.inc"
 #include "hax/block_start.c.inc"
 #include "hax/block_end.c.inc"
+
+#endif
 
 
 WARNINGS_ENABLE
@@ -249,7 +241,7 @@ static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
                 compare_numeric ? OP_EQ : OP_SEQ,
                 0,
                 newSVREF(newGVOP(OP_GV, 0, PL_defgv)),
-                scalar(cond)
+                op_contextualize(cond, G_SCALAR)
             );
         }
 
@@ -275,7 +267,7 @@ static void do_alternative(pTHX_ IfThenVector *itv, int compare_numeric) {
 
             /* unless */
             if (kw_len == 6) {
-                cond2 = newUNOP(OP_NOT, OPf_SPECIAL, scalar(cond2));
+                cond2 = newUNOP(OP_NOT, OPf_SPECIAL, op_contextualize(cond2, G_SCALAR));
             }
 
             cond = !cond ? cond2 : newLOGOP(OP_AND, 0, cond, cond2);
@@ -350,7 +342,7 @@ static void parse_switch(pTHX_ int compare_numeric, OP **op_ptr) {
         OP *target, *gen;
 
         gen = *gen_sentinel;
-        gen = newUNOP(OP_REFGEN, 0, op_lvalue(scalar(gen), OP_REFGEN));
+        gen = newUNOP(OP_REFGEN, 0, op_lvalue(op_contextualize(gen, G_SCALAR), OP_REFGEN));
 
         target = newGVREF(0, newGVOP(OP_GV, 0, PL_defgv));
         target = op_lvalue(target, OP_NULL);
