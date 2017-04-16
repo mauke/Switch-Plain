@@ -1,4 +1,3 @@
-# vi:set ft=perl:
 use strict;
 use warnings;
 
@@ -17,6 +16,9 @@ return {
         'Carp'     => 0,
         'XSLoader' => 0,
         'warnings' => 0,
+    },
+    DEVELOP_REQUIRES => {
+        'Test::Pod' => 1.22,
     },
 
     depend => {
